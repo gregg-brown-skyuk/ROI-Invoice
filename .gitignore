@@ -1,0 +1,6 @@
+*.log
+*.key
+*.enc
+text_file*.py
+*.csv
+*.xl*

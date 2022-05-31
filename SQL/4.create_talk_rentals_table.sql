@@ -1,0 +1,693 @@
+DECLARE
+  DATE_TRUNC(CURRENT_DATE, MONTH) DATE DEFAULT DATE_TRUNC(CURRENT_DATE, MONTH);
+DECLARE
+  DATE_SUB(DATE_TRUNC(CURRENT_DATE, MONTH), INTERVAL 2 MONTH) DATE DEFAULT DATE_SUB(DATE_TRUNC(CURRENT_DATE, MONTH), INTERVAL 2 MONTH);
+DECLARE
+  DATE_TRUNC(CURRENT_DATE, MONTH) DATE DEFAULT DATE_TRUNC(CURRENT_DATE, MONTH);
+CREATE OR REPLACE TABLE
+  `skyuk-uk-csgbillanalysis-dev.roi_rental.roi_#TABLEMONTH#_talk_rentals` AS ##### UPDATE THIS THE DATE TO THE CURRENT MONTH #####
+WITH
+  INVOICE AS (
+  SELECT
+    Reference_CLI AS Reference_CLI,
+    INVOICE_TYPE,
+    Notification_Item_Description,
+    Notification_Type,
+    Order_Number,
+    Notification_Item,
+    New_PTT_No
+  FROM (
+    SELECT
+      ROW_NUMBER() OVER (PARTITION BY CAST(Reference_CLI AS STRING)
+      ORDER BY
+        Billing_Point_Date ASC) FIRSTROWID_BILL,
+      Internal_Number,
+      Order_Number,
+      Original_PTT_No,
+      New_PTT_No,
+      Record_Type,
+      Notification_Item,
+      Notification_Item_Description,
+      Notification_Type,
+      Billing_Point_Date,
+      Billing_End_Date,
+      CONCAT(0,Reference_CLI) AS Reference_CLI,
+      Chargeable_Quantity,
+      Number_of_Days,
+      Daily_Amount,
+      'BTI_DATA' AS INVOICE_TYPE
+    FROM
+      `skyuk-uk-csgbillanalysis-dev.roi_rental.1_roi_invoice_union`
+    WHERE
+      Notification_Type = 'L'
+      AND Record_Type IN ('WLR Line')
+      AND CAST(ADVANCED_BILLING_DATE AS DATE) = DATE_TRUNC(CURRENT_DATE, MONTH) )
+  WHERE
+    FIRSTROWID_BILL = 1 ),
+  BILL_VALUE AS (
+  SELECT
+    CONCAT(0,Reference_CLI) AS Reference_CLI2,
+    SUM(Signed_Number) VALUE
+  FROM
+    `skyuk-uk-csgbillanalysis-dev.roi_rental.1_roi_invoice_union`
+  WHERE
+    Notification_Type = 'L'
+    AND Record_Type IN ('WLR Line')
+    AND CAST(ADVANCED_BILLING_DATE AS DATE) = DATE_TRUNC(CURRENT_DATE, MONTH)
+  GROUP BY
+    Reference_CLI ),
+  OM AS (
+  SELECT
+    SERVICE_ID,
+    ACCOUNT_NUMBER,
+    PORTFOLIO_ID,
+    ACTUAL_DIRECTORY_NUMBER,
+    DATE(CREATED)
+  FROM (
+    SELECT
+      ROW_NUMBER() OVER (PARTITION BY ACTUAL_DIRECTORY_NUMBER ORDER BY CREATED DESC) LATEST_ORDER,
+      RESOURCE_PROVIDER_ORDER_ID,
+      SERVICE_ID,
+      customer.ACCOUNT_NUMBER,
+      ACTUAL_DIRECTORY_NUMBER,
+      CREATED,
+      coalesce(SKY_CUSTOMER.portfolio_id) AS PORTFOLIO_ID
+    FROM
+      `skyuk-uk-csgbillanalysis-dev.Sandpit.OM_UPDATE_ROI` CUSTOMER
+    LEFT OUTER JOIN
+      `skyuk-uk-csgbillanalysis-dev.billing_core.fo_account_mapping` SKY_CUSTOMER
+    ON
+      (SKY_CUSTOMER.account_number = CUSTOMER.ACCOUNT_NUMBER)
+    WHERE
+      SERVICE_TYPE LIKE '%VOICE%' )
+  WHERE
+    LATEST_ORDER = 1
+  UNION ALL
+  SELECT
+    SERVICE_ID,
+    ACCOUNT_NUMBER,
+    PORTFOLIO_ID,
+    DIRECTORY_NUMBER,
+    DATE(SERVICE_START_DATE)
+  FROM (
+    SELECT
+      ROW_NUMBER() OVER (PARTITION BY DIRECTORY_NUMBER ORDER BY SERVICE_START_DATE DESC) LATEST_NUMBER,
+      CAST(SERVICE_ID AS STRING) AS SERVICE_ID,
+      ACCOUNT_NUMBER,
+      DIRECTORY_NUMBER,
+      SERVICE_START_DATE,
+      PORTFOLIO_ID
+    FROM
+      `skyuk-uk-csgbillanalysis-dev.billing_core.customer_by_phone_number`
+    WHERE
+      PRODUCT_FLAG = 'SKY TALK LINE RENTAL'
+    GROUP BY
+      SERVICE_ID,
+      ACCOUNT_NUMBER,
+      DIRECTORY_NUMBER,
+      SERVICE_START_DATE,
+      PORTFOLIO_ID )
+  WHERE
+    LATEST_NUMBER = 1 ),
+  TALK_CRM_DATA AS (
+  SELECT
+    id,
+    created_dt,
+    portfolio_id,
+    account_number,
+    type,
+    sub_type,
+    lr_first_activation_dt,
+    lr_status,
+    lr_status_dt,
+    effective_to_dt
+  FROM (
+    SELECT
+      RANK() OVER (PARTITION BY portfolio_id ORDER BY start_dt DESC) AS row_id,
+      fs.id,
+      fs.created_dt,
+      portfolio_id,
+      account_number,
+      type,
+      sub_type,
+      start_dt AS lr_first_activation_dt,
+      status AS lr_status,
+      effective_from_dt AS lr_status_dt,
+      effective_to_dt
+    FROM
+      `skyuk-uk-customer-pres-prod.uk_pub_cust_spine_subs_is.fact_subscription` fs
+    LEFT OUTER JOIN
+      `skyuk-uk-customer-pres-prod.uk_pub_cust_spine_subs_is.dim_subscription_status` st
+    ON
+      st.subscription_id = fs.id
+    WHERE
+      type = 'Sky Talk'
+      AND sub_type IN ('SKY TALK 140',
+        'SKY TALK LINE RENTAL',
+        'SKY TALK LINE CHARGE')AND currency_code = 'EURO'
+      AND DATE(effective_from_dt) <= DATE_TRUNC(CURRENT_DATE, MONTH)
+      AND DATE(effective_to_dt) > DATE_TRUNC(CURRENT_DATE, MONTH))
+  WHERE
+    row_id = 1 ),
+  SUBS AS (
+  SELECT
+    SECOND_ROW,
+    ACCOUNT_NUMBER,
+    SUBSCRIPTION_ID,
+    FIRST_DATE,
+    EFFECTIVE_FROM_DT,
+    STATUS,
+    STATUS_CODE,
+    SUBSCRIPTION_SUB_TYPE,
+    PREV_STATUS,
+    DATE(PREV_STATUS_START_DT) AS PREV_STATUS_START_DT
+  FROM (
+    SELECT
+      ROW_NUMBER() OVER (PARTITION BY ACCOUNT_NUMBER ORDER BY FIRST_DATE DESC) AS SECOND_ROW,
+      FIRSTROWID,
+      ACCOUNT_NUMBER,
+      SUBSCRIPTION_ID,
+      FIRST_DATE,
+      EFFECTIVE_FROM_DT,
+      STATUS,
+      SUBSCRIPTION_SUB_TYPE,
+      PREV_STATUS,
+      PREV_STATUS_START_DT,
+      STATUS_CODE
+    FROM (
+      SELECT
+        ROW_NUMBER() OVER (PARTITION BY ACCOUNT_NUMBER, SUBSCRIPTION_ID ORDER BY EFFECTIVE_FROM_DT DESC) FIRSTROWID,
+        ACCOUNT_NUMBER,
+        EFFECTIVE_FROM_DT,
+        STATUS,
+        SUBSCRIPTION_SUB_TYPE,
+        SUBSCRIPTION_ID,
+        DATE(FIRST_ACTIVATION_DT) AS FIRST_DATE,
+        PREV_STATUS,
+        PREV_STATUS_START_DT,
+        STATUS_CODE
+      FROM
+        `skyuk-uk-csgbillanalysis-dev.uk_inp_trading_ic.WH_PH_SUBS_HIST`
+      WHERE
+        EFFECTIVE_TO_DT = '9999-09-09'
+        AND DATE(EFFECTIVE_FROM_DT) <= DATE_TRUNC(CURRENT_DATE, MONTH)
+        AND SUBSCRIPTION_SUB_TYPE IN ('SKY TALK LINE RENTAL',
+          'NOW_TV_2.0_LINE_RENTAL')
+        AND DATE(FIRST_ACTIVATION_DT) <> '9999-09-09')
+    WHERE
+      FIRSTROWID = 1
+    GROUP BY
+      FIRSTROWID,
+      ACCOUNT_NUMBER,
+      SUBSCRIPTION_ID,
+      FIRST_DATE,
+      EFFECTIVE_FROM_DT,
+      STATUS,
+      SUBSCRIPTION_SUB_TYPE,
+      PREV_STATUS,
+      PREV_STATUS_START_DT,
+      STATUS_CODE)
+  WHERE
+    UPPER(STATUS) IN ('ACTIVE',
+      'RESTRICTED',
+      'PENDING CANCEL',
+      'ACTIVE BLOCKED',
+      'CEASED REQUESTED') ),
+  SUBS_ALTERNITIVE AS (
+  SELECT
+    SECOND_ROW,
+    ACCOUNT_NUMBER,
+    SUBSCRIPTION_ID,
+    FIRST_DATE,
+    EFFECTIVE_FROM_DT,
+    STATUS,
+    STATUS_CODE,
+    SUBSCRIPTION_SUB_TYPE,
+    PREV_STATUS,
+    DATE(PREV_STATUS_START_DT) AS PREV_STATUS_START_DT
+  FROM (
+    SELECT
+      ROW_NUMBER() OVER (PARTITION BY ACCOUNT_NUMBER ORDER BY EFFECTIVE_FROM_DT DESC) AS SECOND_ROW,
+      FIRSTROWID,
+      ACCOUNT_NUMBER,
+      SUBSCRIPTION_ID,
+      FIRST_DATE,
+      EFFECTIVE_FROM_DT,
+      STATUS,
+      SUBSCRIPTION_SUB_TYPE,
+      PREV_STATUS,
+      PREV_STATUS_START_DT,
+      STATUS_CODE
+    FROM (
+      SELECT
+        ROW_NUMBER() OVER (PARTITION BY ACCOUNT_NUMBER, SUBSCRIPTION_ID ORDER BY EFFECTIVE_FROM_DT DESC) FIRSTROWID,
+        ACCOUNT_NUMBER,
+        EFFECTIVE_FROM_DT,
+        STATUS,
+        SUBSCRIPTION_SUB_TYPE,
+        SUBSCRIPTION_ID,
+        DATE(FIRST_ACTIVATION_DT) AS FIRST_DATE,
+        PREV_STATUS,
+        PREV_STATUS_START_DT,
+        STATUS_CODE
+      FROM
+        `skyuk-uk-csgbillanalysis-dev.uk_inp_trading_ic.WH_PH_SUBS_HIST`
+      WHERE
+        EFFECTIVE_TO_DT = '9999-09-09'
+        AND DATE(EFFECTIVE_FROM_DT) <= DATE_TRUNC(CURRENT_DATE, MONTH)
+        AND SUBSCRIPTION_SUB_TYPE IN ('SKY TALK LINE RENTAL',
+          'NOW_TV_2.0_LINE_RENTAL')
+        AND DATE(FIRST_ACTIVATION_DT) <> '9999-09-09')
+    WHERE
+      FIRSTROWID = 1
+    GROUP BY
+      FIRSTROWID,
+      ACCOUNT_NUMBER,
+      SUBSCRIPTION_ID,
+      FIRST_DATE,
+      EFFECTIVE_FROM_DT,
+      STATUS,
+      SUBSCRIPTION_SUB_TYPE,
+      PREV_STATUS,
+      PREV_STATUS_START_DT,
+      STATUS_CODE)
+  WHERE
+    UPPER(STATUS) NOT IN ('ACTIVE',
+      'RESTRICTED',
+      'PENDING CANCEL',
+      'ACTIVE BLOCKED',
+      'CANCELLED',
+      'CEASED REQUESTED')
+    AND SECOND_ROW = 1 ),
+  SUBS_CANCELLED AS (
+  SELECT
+    SECOND_ROW,
+    ACCOUNT_NUMBER,
+    SUBSCRIPTION_ID,
+    FIRST_DATE,
+    EFFECTIVE_FROM_DT,
+    STATUS,
+    STATUS_CODE,
+    SUBSCRIPTION_SUB_TYPE,
+    PREV_STATUS,
+    DATE(PREV_STATUS_START_DT) AS PREV_STATUS_START_DT
+  FROM (
+    SELECT
+      ROW_NUMBER() OVER (PARTITION BY ACCOUNT_NUMBER ORDER BY EFFECTIVE_FROM_DT DESC) AS SECOND_ROW,
+      FIRSTROWID,
+      ACCOUNT_NUMBER,
+      SUBSCRIPTION_ID,
+      FIRST_DATE,
+      EFFECTIVE_FROM_DT,
+      STATUS,
+      SUBSCRIPTION_SUB_TYPE,
+      PREV_STATUS,
+      PREV_STATUS_START_DT,
+      STATUS_CODE
+    FROM (
+      SELECT
+        ROW_NUMBER() OVER (PARTITION BY ACCOUNT_NUMBER, SUBSCRIPTION_ID ORDER BY EFFECTIVE_FROM_DT DESC) FIRSTROWID,
+        ACCOUNT_NUMBER,
+        EFFECTIVE_FROM_DT,
+        STATUS,
+        SUBSCRIPTION_SUB_TYPE,
+        SUBSCRIPTION_ID,
+        DATE(FIRST_ACTIVATION_DT) AS FIRST_DATE,
+        PREV_STATUS,
+        PREV_STATUS_START_DT,
+        STATUS_CODE
+      FROM
+        `skyuk-uk-csgbillanalysis-dev.uk_inp_trading_ic.WH_PH_SUBS_HIST`
+      WHERE
+        EFFECTIVE_TO_DT = '9999-09-09'
+        AND DATE(EFFECTIVE_FROM_DT) <= DATE_TRUNC(CURRENT_DATE, MONTH)
+        AND SUBSCRIPTION_SUB_TYPE IN ('SKY TALK LINE RENTAL',
+          'NOW_TV_2.0_LINE_RENTAL')
+        AND DATE(FIRST_ACTIVATION_DT) <> '9999-09-09')
+    WHERE
+      FIRSTROWID = 1
+    GROUP BY
+      FIRSTROWID,
+      ACCOUNT_NUMBER,
+      SUBSCRIPTION_ID,
+      FIRST_DATE,
+      EFFECTIVE_FROM_DT,
+      STATUS,
+      SUBSCRIPTION_SUB_TYPE,
+      PREV_STATUS,
+      PREV_STATUS_START_DT,
+      STATUS_CODE)
+  WHERE
+    UPPER(STATUS) = ('CANCELLED')
+    AND SECOND_ROW = 1 ),
+  KEENAN_VALUE AS (
+  SELECT
+    INCURRING_CUST_ACCOUNT_NO,
+    CREATED_DT
+  FROM (
+    SELECT
+      ROW_NUMBER() OVER (PARTITION BY CAST(INCURRING_CUST_ACCOUNT_NO AS STRING)
+      ORDER BY
+        CREATED_DT DESC) firstrow,
+      INCURRING_CUST_ACCOUNT_NO,
+      CREATED_DT
+    FROM
+      `skyuk-uk-csgbillanalysis-dev.billing_core.product_charges_rc`
+    WHERE
+      DATE(CREATED_DT) BETWEEN DATE_SUB(DATE_TRUNC(CURRENT_DATE, MONTH), INTERVAL 2 MONTH)
+      AND DATE_TRUNC(CURRENT_DATE, MONTH)
+      AND CHARGE_GROUPING_ID IN (30,
+        1003)
+    GROUP BY
+      INCURRING_CUST_ACCOUNT_NO,
+      CREATED_DT )
+  WHERE
+    firstrow = 1
+  UNION ALL
+  SELECT
+    BO_ACCOUNT_NO,
+    CREATED_DT
+  FROM (
+    SELECT
+      ROW_NUMBER() OVER (PARTITION BY CAST(BO_ACCOUNT_NO AS STRING)
+      ORDER BY
+        CREATED_DT DESC) firstrow,
+      BO_ACCOUNT_NO,
+      CREATED_DT
+    FROM
+      `skyuk-uk-csgbillanalysis-dev.uk_inp_trading_ic.WH_CHARGE_GROUP_BALANCE`
+    WHERE
+      DATE(CREATED_DT) BETWEEN DATE_SUB(DATE_TRUNC(CURRENT_DATE, MONTH), INTERVAL 2 MONTH)
+      AND DATE_TRUNC(CURRENT_DATE, MONTH)
+      AND CHARGE_GROUPING_ID IN (30,
+        1003)
+    GROUP BY
+      BO_ACCOUNT_NO,
+      CREATED_DT )
+  WHERE
+    firstrow = 1 ),
+  CHARGE_VALUE AS (
+  SELECT
+    INCURRING_CUST_ACCOUNT_NO,
+    CREATED_DT,
+    SUM( SUM) AS CHARGE_VALUE
+  FROM
+    `skyuk-uk-csgbillanalysis-dev.billing_core.product_charges_rc`
+  WHERE
+    DATE(CREATED_DT) BETWEEN DATE_SUB(DATE_TRUNC(CURRENT_DATE, MONTH), INTERVAL 2 MONTH)
+    AND DATE_TRUNC(CURRENT_DATE, MONTH)
+    AND CHARGE_GROUPING_ID IN (30,
+      1003)
+  GROUP BY
+    INCURRING_CUST_ACCOUNT_NO,
+    CREATED_DT ),
+  BILLED_DATA AS (
+  SELECT
+    BO_ACCOUNT_NO,
+    DATE(CREATED_DT) AS created_dt
+  FROM (
+    SELECT
+      ROW_NUMBER() OVER (PARTITION BY BO_ACCOUNT_NO ORDER BY CREATED_DT DESC) firstrow,
+      BO_ACCOUNT_NO,
+      CREATED_DT
+    FROM
+      `skyuk-uk-csgbillanalysis-dev.uk_inp_trading_ic.WH_CHARGE_GROUP_BALANCE`
+    WHERE
+      DATE(CREATED_DT) BETWEEN DATE_SUB(DATE_TRUNC(CURRENT_DATE, MONTH), INTERVAL 2 MONTH)
+      AND DATE_TRUNC(CURRENT_DATE, MONTH)
+      AND CHARGE_GROUPING_ID IN (30,
+        1003)
+    GROUP BY
+      BO_ACCOUNT_NO,
+      CREATED_DT )
+  WHERE
+    firstrow =1 ),
+  BILLED_VALUE AS (
+  SELECT
+    BO_ACCOUNT_NO,
+    DATE(CREATED_DT) AS CREATED_DT,
+    NEW_CHARGES_AT_BILLING AS BILLED_VALUE
+  FROM
+    `skyuk-uk-csgbillanalysis-dev.uk_inp_trading_ic.WH_CHARGE_GROUP_BALANCE`
+  WHERE
+    DATE(CREATED_DT) BETWEEN DATE_SUB(DATE_TRUNC(CURRENT_DATE, MONTH), INTERVAL 2 MONTH)
+    AND DATE_TRUNC(CURRENT_DATE, MONTH)
+    AND CHARGE_GROUPING_ID IN (30,
+      1003)
+  GROUP BY
+    BO_ACCOUNT_NO,
+    CREATED_DT,
+    NEW_CHARGES_AT_BILLING ),
+  BO_ACC AS (
+  SELECT
+    ACCOUNT_NUMBER,
+    bo_account_number AS BO_ACCOUNT_NUMBER,
+    portfolio_id
+  FROM
+    `skyuk-uk-csgbillanalysis-dev.billing_core.fo_account_mapping`
+  GROUP BY
+    ACCOUNT_NUMBER,
+    bo_account_number,
+    portfolio_id ),
+  LATEST_ORDER AS (
+  SELECT
+    Service_ID,
+    ORDER_ID,
+    CREATED_DATE,
+    DELIVERY_PHONE_NUMBER,
+    ORDER_STATUS_CODE,
+    ORDER_STATUS_SET_DATE,
+    ORDER_TYPE_CODE,
+    PARENT_ORDER_TYPE_CODE,
+    ACQUISITION_TYPE,
+    PROVIDE_REQUEST_TYPE
+  FROM (
+    SELECT
+      ROW_NUMBER() OVER (PARTITION BY Service_ID ORDER BY ORDER_STATUS_SET_DATE DESC) AS LATESTED_ORDER,
+      Service_ID,
+      ORDER_ID,
+      CREATED_DATE,
+      DELIVERY_PHONE_NUMBER,
+      ORDER_STATUS_CODE,
+      ORDER_STATUS_SET_DATE,
+      ORDER_TYPE_CODE,
+      PARENT_ORDER_TYPE_CODE,
+      ACQUISITION_TYPE,
+      PROVIDE_REQUEST_TYPE
+    FROM
+      `skyuk-uk-csgbillanalysis-dev.Sandpit.all_orders`
+    GROUP BY
+      Service_ID,
+      ORDER_ID,
+      CREATED_DATE,
+      DELIVERY_PHONE_NUMBER,
+      ORDER_STATUS_CODE,
+      ORDER_STATUS_SET_DATE,
+      ORDER_TYPE_CODE,
+      PARENT_ORDER_TYPE_CODE,
+      ACQUISITION_TYPE,
+      PROVIDE_REQUEST_TYPE )
+  WHERE
+    LATESTED_ORDER = 1),
+  SERVICE_DETAILS AS (
+  SELECT
+    CAST(SERVICE_ID AS STRING) AS SERVICE_ID,
+    ACCOUNT_NUMBER,
+    DIRECTORY_NUMBER,
+    SERVICE_START_DATE,
+    PORTFOLIO_ID,
+    SERVICE_CEASE_DATE
+  FROM
+    `skyuk-uk-csgbillanalysis-dev.billing_core.customer_by_phone_number`
+  GROUP BY
+    SERVICE_ID,
+    ACCOUNT_NUMBER,
+    DIRECTORY_NUMBER,
+    SERVICE_START_DATE,
+    PORTFOLIO_ID,
+    SERVICE_CEASE_DATE ),
+  account_by_uan AS (
+  SELECT
+    RANK() OVER(PARTITION BY service.SERVICE_ID ORDER BY SERVICE_START_DATE DESC) AS rank,
+    service.SERVICE_ID,
+    UAN,
+    account_number
+  FROM
+    `skyuk-uk-csgbillanalysis-dev.uk_inp_provisioning_ic.ODW_PENFOLD_DSL_SERVICE_DIM` service
+  LEFT OUTER JOIN
+    `skyuk-uk-csgbillanalysis-dev.Sandpit.Account_to_Service_id` acc
+  ON
+    CAST(service.SERVICE_ID AS string) = acc.SERVICE_ID
+  GROUP BY
+    SERVICE_START_DATE,
+    service.SERVICE_ID,
+    UAN,
+    account_number),
+  account_by_order AS (
+  SELECT
+    ACCOUNT_NUMBER,
+    ORDER_ID AS orderid,
+    BT_REFERENCE,
+    BT_CIRCUIT,
+    DELIVERY_PHONE_NUMBER,
+    SERVICE_ID
+  FROM
+    `skyuk-uk-csgbillanalysis-dev.Sandpit.all_orders`
+  WHERE
+    PARENT_ORDER_TYPE_CODE = 'ROI'
+    AND ACCOUNT_NUMBER IS NOT NULL
+  GROUP BY
+    ACCOUNT_NUMBER,
+    orderid,
+    BT_REFERENCE,
+    BT_CIRCUIT,
+    DELIVERY_PHONE_NUMBER,
+    SERVICE_ID ),
+  service_instance AS(
+  SELECT
+    portfolio_id,
+    account_number,
+    service_instance_id
+  FROM
+    `skyuk-uk-customer-pres-prod.uk_pub_cust_spine_subs_is.fact_subscription`
+  WHERE
+    type = 'Sky Talk'
+    AND sub_type = 'SKY TALK LINE RENTAL'
+    AND active_flag = TRUE
+  GROUP BY
+    portfolio_id,
+    account_number,
+    service_instance_id )
+SELECT
+  *
+FROM (
+  SELECT
+    ROW_NUMBER() OVER (PARTITION BY Reference_CLI ORDER BY SERVICE_CEASE_DATE DESC) AS LATESTED_SERVICE,
+    Reference_CLI,
+    coalesce (uan.account_number,
+      account_by_order.account_number,
+      OM.ACCOUNT_NUMBER) AS account_number,
+    service_instance_id,
+    New_PTT_No,
+    OM.PORTFOLIO_ID,
+    OM.SERVICE_ID,
+    coalesce (lr_status,
+      SUBS.STATUS_CODE,
+      SUBS_ALTERNITIVE.STATUS_CODE,
+      SUBS_CANCELLED.STATUS_CODE) AS STATUS,
+    coalesce (DATE(lr_status_dt),
+      DATE(SUBS.EFFECTIVE_FROM_DT),
+      DATE(SUBS_ALTERNITIVE.EFFECTIVE_FROM_DT),
+      DATE(SUBS_CANCELLED.EFFECTIVE_FROM_DT)) AS STATUS_DATE,
+    coalesce (DATE(lr_first_activation_dt),
+      DATE(SUBS.FIRST_DATE),
+      DATE(SUBS_ALTERNITIVE.FIRST_DATE),
+      DATE(SUBS_CANCELLED.FIRST_DATE)) AS FIRST_ACTIVATION_DATE,
+    DATE(KEENAN_VALUE.CREATED_DT) AS LAST_BILL_DATE,
+    BILLED_VALUE.BILLED_VALUE,
+    CHARGE_VALUE.CHARGE_VALUE,
+    BILL_VALUE.VALUE AS INVOICE_VALUE,
+    ORDER_ID,
+    CREATED_DATE,
+    ORDER_STATUS_CODE,
+    ORDER_STATUS_SET_DATE,
+    ORDER_TYPE_CODE,
+    PARENT_ORDER_TYPE_CODE,
+    SERVICE_DETAILS.SERVICE_START_DATE,
+    SERVICE_DETAILS.SERVICE_CEASE_DATE
+  FROM
+    INVOICE
+  LEFT OUTER JOIN
+    account_by_uan uan
+  ON
+    (uan.uan = invoice.New_PTT_No)
+  LEFT OUTER JOIN
+    account_by_order
+  ON
+    CAST(account_by_order.orderid AS string) = invoice.order_number
+  LEFT OUTER JOIN
+    OM
+  ON
+    (INVOICE.Reference_CLI = OM.ACTUAL_DIRECTORY_NUMBER)
+  LEFT OUTER JOIN
+    TALK_CRM_DATA
+  ON
+    (TALK_CRM_DATA.portfolio_id = OM.portfolio_id)
+  LEFT OUTER JOIN
+    SUBS
+  ON
+    (SUBS.ACCOUNT_NUMBER = OM.ACCOUNT_NUMBER)
+  LEFT OUTER JOIN
+    SUBS_ALTERNITIVE
+  ON
+    (SUBS_ALTERNITIVE.ACCOUNT_NUMBER = OM.ACCOUNT_NUMBER)
+  LEFT OUTER JOIN
+    SUBS_CANCELLED
+  ON
+    (SUBS_CANCELLED.ACCOUNT_NUMBER = OM.ACCOUNT_NUMBER)
+  LEFT OUTER JOIN
+    BO_ACC
+  ON
+    (BO_ACC.ACCOUNT_NUMBER = OM.ACCOUNT_NUMBER)
+  LEFT OUTER JOIN
+    KEENAN_VALUE
+  ON
+    (KEENAN_VALUE.INCURRING_CUST_ACCOUNT_NO = BO_ACC.BO_ACCOUNT_NUMBER)
+  LEFT OUTER JOIN
+    CHARGE_VALUE
+  ON
+    (CHARGE_VALUE.INCURRING_CUST_ACCOUNT_NO = BO_ACC.BO_ACCOUNT_NUMBER
+      AND DATE(CHARGE_VALUE.CREATED_DT) = DATE(KEENAN_VALUE.CREATED_DT))
+  LEFT OUTER JOIN
+    BILLED_DATA
+  ON
+    (BILLED_DATA.BO_ACCOUNT_NO = BO_ACC.BO_ACCOUNT_NUMBER)
+  LEFT OUTER JOIN
+    BILLED_VALUE
+  ON
+    (BILLED_VALUE.BO_ACCOUNT_NO = BILLED_DATA.BO_ACCOUNT_NO
+      AND BILLED_VALUE.CREATED_DT = BILLED_DATA.CREATED_DT )
+  LEFT OUTER JOIN
+    LATEST_ORDER
+  ON
+    (CAST(LATEST_ORDER.SERVICE_ID AS string) = OM.SERVICE_ID)
+  LEFT OUTER JOIN
+    SERVICE_DETAILS
+  ON
+    (SERVICE_DETAILS.SERVICE_ID = OM.SERVICE_ID)
+  LEFT OUTER JOIN
+    BILL_VALUE
+  ON
+    (BILL_VALUE.Reference_CLI2 = INVOICE.Reference_CLI)
+  LEFT OUTER JOIN
+    service_instance
+  ON
+    service_instance.portfolio_id = BO_ACC.portfolio_id
+  GROUP BY
+    Reference_CLI,
+    ACCOUNT_NUMBER,
+    service_instance_id,
+    New_PTT_No,
+    SERVICE_ID,
+    PORTFOLIO_ID,
+    lr_status,
+    lr_status_dt,
+    lr_first_activation_dt,
+    STATUS,
+    STATUS_DATE,
+    FIRST_ACTIVATION_DATE,
+    LAST_BILL_DATE,
+    BILLED_VALUE,
+    CHARGE_VALUE,
+    ORDER_ID,
+    CREATED_DATE,
+    ORDER_STATUS_CODE,
+    ORDER_STATUS_SET_DATE,
+    ORDER_TYPE_CODE,
+    PARENT_ORDER_TYPE_CODE,
+    SERVICE_START_DATE,
+    SERVICE_CEASE_DATE,
+    INVOICE_VALUE )
+WHERE
+  LATESTED_SERVICE = 1
+  OR LATESTED_SERVICE IS NULL
