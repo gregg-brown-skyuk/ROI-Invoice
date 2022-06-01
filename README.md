@@ -1,4 +1,6 @@
-# ROI Invoice
+# ROI Invoice Process Automation
+
+This repository contains the Python code and SQL queries for the ROI Invoice Process Automation.
 
 ## Process steps
 
@@ -15,5 +17,12 @@
             <li>NBI Rentals Breakdown</li>
         </ul>
     </li>
-    <li></li>
 </ol>
+
+---
+[Gregg Brown][email]
+
+*Committed to Github June 2022*
+
+<!-- Links -->
+[email]: mailto:gregg.brown@sky.uk
