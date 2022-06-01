@@ -2,6 +2,7 @@
 from google.cloud import bigquery as bq
 from datetime import datetime as dt
 
+
 def InitializeVariables():
     monthName = dt.strftime(dt.now(), '%b_%y').lower()
     monthFolder = dt.strftime(dt.now(), '%B %Y')
@@ -10,10 +11,12 @@ def InitializeVariables():
     saveDir = fr'\\skyshare.intranet.sky\sky\Cost Assurance\07 ROI Invoice\{monthFolder}'
     return monthName, monthFolder, saveDir, client
 
+monthName, monthFolder, saveDir, client = InitializeVariables()
+
 def GetSQL(sqlFile):
     return open(sqlFile).read().replace('#TABLEMONTH#', monthName)
 
-def CreateInvestigations(products):
+def CreateInvestigations(products=['BB', 'Talk']):
     for product in products:
         print(f'Running query for {product}')
         qry = GetSQL(fr'SQL\{product}_investigations(view).sql')
@@ -22,10 +25,13 @@ def CreateInvestigations(products):
         result.to_excel(saveFile, sheet_name='Total', index=False)
     print('Completed')
 
+def RunQuery(sqlFile):
+    qry = GetSQL(fr'SQL\{sqlFile}.sql')
+    client.query(query=qry)
+
 # %%
 if __name__ == '__main__':
-    monthName, monthFolder, saveDir, client = InitializeVariables()
-    CreateInvestigations(['BB', 'Talk'])
+    CreateInvestigations()
 
 # # qry = open(r'SQL\4.create_bb_rentals_table.sql').read().replace('#TABLEMONTH#', monthName)
 # client.query(query=qry)

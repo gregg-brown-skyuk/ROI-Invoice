@@ -22,15 +22,15 @@ def DownloadFile():
   with open('invoice_credentials.enc', 'rb') as creds:
       login = json.loads(fernet.decrypt(creds.read()))['BTIreports']
 
-  saveDir = str(Path.home() / "Downloads")
-  dlDir = askdirectory(title='Select folder to save file...')
-  if dlDir == '':
-    return dlDir
+  dlDir = str(Path.home() / "Downloads")
+  saveDir = askdirectory(title='Select folder to save file...')
+  if saveDir == '':
+    return saveDir
 
   options = FirefoxOptions()
   options.set_preference('security.tls.version.enable-deprecated', True)
   options.set_preference('browser.download.folderList', 2)
-  options.set_preference('browser.download.dir', saveDir)
+  options.set_preference('browser.download.dir', dlDir)
   options.set_preference('browser.download.manager.showWhenStarting', False)
   options.set_preference('browser.helperApps.neverAsk.saveToDisk', 'application/x-gzip')
   options.add_argument('--headless')
@@ -42,8 +42,8 @@ def DownloadFile():
   try:
     fileDate = f'{dt.strftime(dt.now(), "%Y%m")}01'
     fileName = f'{fileDate}000000_000083758_recurringcharges.csv.gz'
-    gzFile = f'{saveDir}/{fileName}'
-    csvFile = f'{dlDir}/BTI_Invoice_{dt.strftime(dt.now(), "%b_%y").lower()}.csv'
+    gzFile = f'{dlDir}/{fileName}'
+    csvFile = f'{saveDir}/BTI_Invoice_{dt.strftime(dt.now(), "%b_%y").lower()}.csv'
     driver.find_element(By.LINK_TEXT, fileName).click()
   except:
     driver.quit()
@@ -66,50 +66,16 @@ def DownloadFile():
   os.remove(gzFile)
   return csvFile
 
-# Extract from CSV and Upload to GCP
-def ExtractAndUpload():
-
-  print(f'Reading data from CSV\n\t{csvFile}')
-  df = pd.read_csv(csvFile, skiprows=1, skipfooter=1, header=None,
-        engine='python', dtype=str).drop(columns=[12,13,16])
-
-  print('Formatting data...')
-  df.insert(0,'00',dateStr)
-
-  renameCols = {i:j for i,j in zip(df.columns, colSchema)}
-  df = df.rename(columns=renameCols)
-  for col in colSchema:
-    if colSchema[col] != 'string':
-      if colSchema[col] in ['int64', 'float64']:
-        df[col].fillna(0, inplace=True)
-      try: 
-        df[col] = pd.to_datetime(df[col], format='%d/%m/%Y')
-      except:
-        df[col] = df[col].astype(colSchema[col])
-
-  print(f'Uploading data to GCP...')
-  try:
-    df.to_gbq(destination_table=f'{dataset}.{table}',
-              project_id=project,
-              if_exists='replace',
-              progress_bar=False, table_schema=gcpSchema)
-    return True
-  except:
-    return False
-
 # Reformat dates
 def GetDates():
   # fileDate = dt.strftime(dateStr, '%Y%m01')
   dateStr = dt.strftime(dt.now(), '01/%m/%Y')
   table = f'roi_invoice_{dt.strftime(dt.now(), "%b_%y").lower()}'
   return dateStr, table
-#%%
-# Main process
 
-if __name__ == '__main__':
-
+# Extract from CSV and Upload to GCP
+def ExtractAndUpload():
   csvFile = DownloadFile()
-
   if csvFile != '':
     gcpSchema = [
       {'name':'advanced_billing_date', 'type': 'date'},
@@ -138,11 +104,41 @@ if __name__ == '__main__':
     dataset = 'roi_rental'
 
     dateStr, table = GetDates()
+    print(f'Reading data from CSV\n\t{csvFile}')
+    df = pd.read_csv(csvFile, skiprows=1, skipfooter=1, header=None,
+          engine='python', dtype=str).drop(columns=[12,13,16])
 
-    if ExtractAndUpload():
+    print('Formatting data...')
+    df.insert(0,'00',dateStr)
+
+    renameCols = {i:j for i,j in zip(df.columns, colSchema)}
+    df = df.rename(columns=renameCols)
+    for col in colSchema:
+      if colSchema[col] != 'string':
+        if colSchema[col] in ['int64', 'float64']:
+          df[col].fillna(0, inplace=True)
+        try: 
+          df[col] = pd.to_datetime(df[col], format='%d/%m/%Y')
+        except:
+          df[col] = df[col].astype(colSchema[col])
+
+    print(f'Uploading data to GCP...')
+    try:
+      df.to_gbq(destination_table=f'{dataset}.{table}',
+                project_id=project,
+                if_exists='replace',
+                progress_bar=False, table_schema=gcpSchema)
       print(f'Data uploaded to {dataset}.{table} for {dateStr}')
-    else:
+      # return True
+    except:
       print('Upload failed')
+      # return False
   else:
     print('Aborted without upload')
   sleep(5)
+
+#%%
+# Main process
+
+if __name__ == '__main__':
+  ExtractAndUpload()
