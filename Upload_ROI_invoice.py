@@ -6,7 +6,7 @@ from time import sleep
 from selenium.webdriver import Firefox, FirefoxOptions
 from selenium.webdriver.common.by import By
 from cryptography.fernet import Fernet
-from tkinter.filedialog import askdirectory
+# from tkinter.filedialog import askdirectory
 from pathlib import Path
 
 
@@ -23,9 +23,11 @@ def DownloadFile():
       login = json.loads(fernet.decrypt(creds.read()))['BTIreports']
 
   dlDir = str(Path.home() / "Downloads")
-  saveDir = askdirectory(title='Select folder to save file...')
-  if saveDir == '':
-    return saveDir
+  monthFolder = dt.strftime(dt.now(), '%B %Y')
+  saveDir = fr'\\skyshare.intranet.sky\sky\Cost Assurance\07 ROI Invoice\{monthFolder}'
+  #  saveDir = askdirectory(title='Select folder to save file...')
+  # if saveDir == '':
+  #   return saveDir
 
   options = FirefoxOptions()
   options.set_preference('security.tls.version.enable-deprecated', True)

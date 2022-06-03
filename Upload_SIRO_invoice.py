@@ -89,11 +89,14 @@ def ExtractAndUpload():
 
     # Save Dataframe as CSV
     print('Saving CSV file')
-    saveDir = askdirectory(title="Choose where to save downloaded data...", mustexist=True)
-    if saveDir != '':
-        fileData.to_csv(f'{saveDir}/SIRO_invoice_{tableDate}.csv')
-    else:
-        print('CSV file not saved')
+    monthFolder = dt.strftime(dt.now(), '%B %Y')
+    saveDir = fr'\\skyshare.intranet.sky\sky\Cost Assurance\07 ROI Invoice\{monthFolder}'
+    fileData.to_csv(fr'{saveDir}\SIRO_invoice_{tableDate}.csv')
+    # saveDir = askdirectory(title="Choose where to save downloaded data...", mustexist=True)
+    # if saveDir != '':
+    #     fileData.to_csv(f'{saveDir}/SIRO_invoice_{tableDate}.csv')
+    # else:
+    #     print('CSV file not saved')
 
     # Upload to GCP
 

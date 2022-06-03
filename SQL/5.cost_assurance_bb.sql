@@ -43,9 +43,7 @@ END
   COUNT(DISTINCT( Reference_CLI)) AS CUSTOMER,
   SUM(VALUE) AS BILLED_VALUE
 FROM
-  `skyuk-uk-csgbillanalysis-dev.roi_rental.roi_*` 
-WHERE
-  _TABLE_SUFFIX = CONCAT(LOWER(FORMAT_DATE('%b_%y', CURRENT_DATE())), '_bb_rentals')
+  `skyuk-uk-csgbillanalysis-dev.roi_rental.roi_bb_rental` 
 GROUP BY
   TYPE,
   CRM_STATUS,

@@ -41,9 +41,7 @@ END
   COUNT(DISTINCT( Reference_CLI)) AS CUSTOMER,
   SUM(INVOICE_VALUE) AS BILLED_VALUE
 FROM
-  `skyuk-uk-csgbillanalysis-dev.roi_rental.roi_*`
-WHERE
-  _TABLE_SUFFIX = CONCAT(LOWER(FORMAT_DATE('%b_%y', CURRENT_DATE())), '_talk_rentals')
+  `skyuk-uk-csgbillanalysis-dev.roi_rental.roi_talk_rental`
 GROUP BY
   STATUS,
   CEASE_FLAG,
