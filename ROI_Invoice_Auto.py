@@ -4,7 +4,7 @@ import pandas_gbq as pdgbq
 from datetime import datetime as dt
 from google.cloud.bigquery import Client
 from os import mkdir
-from Run_SQL_Scripts import RunQuery, CreateInvestigations, CreateInvoiceSummary, CreateConnectionsCheck, CreateNBIRentals
+from Run_SQL_Scripts import *
 
 if __name__ == '__main__':
     monthName = dt.strftime(dt.now(), '%b_%y').lower()
@@ -18,5 +18,6 @@ if __name__ == '__main__':
     RunQuery('2.union_create')
     CreateInvoiceSummary()
     CreateConnectionsCheck()
+    CreateCostAssurance()
     CreateInvestigations()
     CreateNBIRentals()
