@@ -19,5 +19,6 @@ if __name__ == '__main__':
     CreateInvoiceSummary()
     CreateConnectionsCheck()
     CreateCostAssurance()
+    CreateConnectionsMissing()
     CreateInvestigations()
     CreateNBIRentals()

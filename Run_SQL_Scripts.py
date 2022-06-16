@@ -63,7 +63,15 @@ def CreateCostAssurance(products=['BB', 'Talk']):
         result = pdgbq.read_gbq(query_or_table=qry, project_id=project_id)
         result.to_csv(saveFile, index=False)
     print('Completed')
+
+def CreateConnectionsMissing():
+    print('Creating Connections Missing')
+    qry = GetSQL('6.connections_missing')
+    saveFile = fr'{saveDir}\Connections Dispute.xlsx'
+    result = pdgbq.read_gbq(query_or_table=qry, project_id=project_id)
+    result.to_excel(saveFile, index=False)
+    print('Completed')
 # %%
 if __name__ == '__main__':
-    CreateCostAssurance()
+    CreateConnectionsMissing()
 # %%
