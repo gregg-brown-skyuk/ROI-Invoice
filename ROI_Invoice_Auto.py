@@ -10,7 +10,10 @@ if __name__ == '__main__':
     monthName = dt.strftime(dt.now(), '%b_%y').lower()
     monthFolder = dt.strftime(dt.now(), '%B %Y')
     saveDir = fr'\\skyshare.intranet.sky\sky\Cost Assurance\07 ROI Invoice\{monthFolder}'
-    mkdir(saveDir)
+    try:
+        mkdir(saveDir)
+    except FileExistsError:
+        pass
     
     ROI.ExtractAndUpload()
     SIRO.ExtractAndUpload()
